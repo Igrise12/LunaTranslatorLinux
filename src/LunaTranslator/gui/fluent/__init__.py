@@ -11,8 +11,7 @@ from qtsymbols import (
     QLineEdit, QPlainTextEdit, QTextEdit, QComboBox,
 )
 
-if isqt5:
-    from PyQt5.QtCore import QCoreApplication
+from qtsymbols import QCoreApplication
 
 import ctypes
 import os
@@ -178,8 +177,8 @@ def _install_exec_menu_gate():
                 menu = target.lineEdit().createStandardContextMenu()
             if menu is None:
                 return False
-            menu.setAttribute(Qt.WA_DeleteOnClose)
-            menu.exec_(ev.globalPos())
+            menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            menu.exec(ev.globalPos())
             return True
 
     _app = QApplication.instance()

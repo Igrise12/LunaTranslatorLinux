@@ -594,7 +594,7 @@ def copyllmapi(fanyi, newname=None, uid=None, args: dict = None, use=False):
     if not uid:
         uid = str(uuid.uuid4())
     if not (uid in globalconfig["fanyi"]):
-        _f11 = "Lunatranslator/translator/{}.py".format(fanyi)
+        _f11 = "LunaTranslator/translator/{}.py".format(fanyi)
         _f12 = gobject.getconfig("copyed/{}.py".format(fanyi))
         _f2 = gobject.getconfig("copyed/{}.py".format(uid))
         try:
@@ -643,7 +643,10 @@ def dynamiclink(text: str = "", docs=False) -> str:
 
 
 def checkintegrity():
+    if os.name != "nt":
+        from lunaplat.linux.integrity import checkintegrity_linux
 
+        return checkintegrity_linux(_TR)
     if runtime_for_win10 and not sys_win10_release_supported:
         return 1, _TR("软件当前版本需要 Windows 10 1803 及以上。请使用软件的其他版本。")
     dll3264 = [

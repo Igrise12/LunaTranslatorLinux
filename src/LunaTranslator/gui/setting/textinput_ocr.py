@@ -182,7 +182,7 @@ def initgridsources(self, names):
     i = 0
     grids_source = []
     for name in names:
-        _f = "Lunatranslator/ocrengines/{}.py".format(name)
+        _f = "LunaTranslator/ocrengines/{}.py".format(name)
         if os.path.exists(_f) == False:
             continue
         if globalconfig["ocr"][name].get("argstype", None):

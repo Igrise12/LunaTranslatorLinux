@@ -85,7 +85,7 @@ class PageSearchWord(HTTPHandler):
     path = "/page/dictionary"
 
     def parse(self, _: RequestInfo):
-        page = r"LunaTranslator\htmlcode\service\dictionary.html"
+        page = r"LunaTranslator/htmlcode/service/dictionary.html"
         if not _.query.get("word"):
             return FileResponse(page)
         word = WordSegResult.from_dict(_.query)
@@ -106,7 +106,7 @@ class Pagetranslate(HTTPHandler):
     path = "/page/translate"
 
     def parse(self, _: RequestInfo):
-        page = r"LunaTranslator\htmlcode\service\translate.html"
+        page = r"LunaTranslator/htmlcode/service/translate.html"
         return FileResponse(page)
 
 
@@ -331,7 +331,7 @@ class Pageocr(HTTPHandler):
     path = "/page/ocr"
 
     def parse(self, _):
-        page = r"LunaTranslator\htmlcode\service\ocr.html"
+        page = r"LunaTranslator/htmlcode/service/ocr.html"
         return FileResponse(page)
 
 
@@ -339,7 +339,7 @@ class Pagetts(HTTPHandler):
     path = "/page/tts"
 
     def parse(self, _):
-        page = r"LunaTranslator\htmlcode\service\tts.html"
+        page = r"LunaTranslator/htmlcode/service/tts.html"
         return FileResponse(page)
 
 
@@ -361,14 +361,14 @@ class PageManyInOne(HTTPHandler):
     path = "/page/manyinone"
 
     def parse(self, _):
-        return FileResponse(r"LunaTranslator\htmlcode\service\manyinone.html")
+        return FileResponse(r"LunaTranslator/htmlcode/service/manyinone.html")
 
 
 class PageIndex(HTTPHandler):
     path = "/"
 
     def parse(self, _):
-        return FileResponse(r"LunaTranslator\htmlcode\service\index.html")
+        return FileResponse(r"LunaTranslator/htmlcode/service/index.html")
 
 
 class TextInput(HTTPHandler):

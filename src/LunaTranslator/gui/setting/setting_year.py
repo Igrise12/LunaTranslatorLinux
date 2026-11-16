@@ -206,7 +206,7 @@ def yearsummary(self, basel: QHBoxLayout):
         tu_m[m] = getimages(info)
     developer, webtags = getallgamelabels(yearinfos)
     with open(
-        r"LunaTranslator\htmlcode/yearsummary/yearsummary.value.js",
+        r"LunaTranslator/htmlcode/yearsummary/yearsummary.value.js",
         "w",
         encoding="utf8",
     ) as ff2:
@@ -234,7 +234,7 @@ webtags={webtags}
             )
         )
 
-    link = os.path.abspath(r"LunaTranslator\htmlcode/yearsummary/yearsummary.html")
+    link = os.path.abspath(r"LunaTranslator/htmlcode/yearsummary/yearsummary.html")
     try:
         _ = WebviewWidget(self)
         _.navigate(link)

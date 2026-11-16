@@ -1,5 +1,6 @@
 import platform, os, sys
 from ctypes import c_void_p
+import lunaplat
 
 thisuserconfig = "userconfig"
 runtime_bit_64 = platform.architecture()[0] == "64bit"
@@ -26,9 +27,9 @@ def GetDllpath(_, base=None):
     if base is None:
         base = os.path.abspath("files/DLL" + ("32", "64")[runtime_bit_64])
     if isinstance(_, str):
-        return os.path.join(base, _)
+        return lunaplat.dllpath(base, _)
     elif isinstance(_, (list, tuple)):
-        return os.path.join(base, _[runtime_bit_64])
+        return lunaplat.dllpath(base, _[runtime_bit_64])
 
 
 def __getdir(name="", basedir="cache"):
@@ -116,7 +117,7 @@ else:
     runtimedir = "runtime3.7-32"
 
 runtimedir = os.path.join("files", runtimedir)
-platformversion = tuple(int(_) for _ in platform.version().split("."))
+platformversion = lunaplat.windowsversion()
 sys_le_xp = platformversion[0] <= 5
 sys_ge_win_11 = platformversion[2] >= 22000  # 21h2
 sys_ge_win_10 = platformversion[0] >= 10

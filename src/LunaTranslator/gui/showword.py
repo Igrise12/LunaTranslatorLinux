@@ -1092,15 +1092,15 @@ class AnkiWindow(QWidget):
                 model_css = ff.read()
         except:
             with open(
-                r"LunaTranslator\htmlcode/anki/back.html", "r", encoding="utf8"
+                r"LunaTranslator/htmlcode/anki/back.html", "r", encoding="utf8"
             ) as ff:
                 model_htmlback = ff.read()
             with open(
-                r"LunaTranslator\htmlcode/anki/front.html", "r", encoding="utf8"
+                r"LunaTranslator/htmlcode/anki/front.html", "r", encoding="utf8"
             ) as ff:
                 model_htmlfront = ff.read()
             with open(
-                r"LunaTranslator\htmlcode/anki/style.css", "r", encoding="utf8"
+                r"LunaTranslator/htmlcode/anki/style.css", "r", encoding="utf8"
             ) as ff:
                 model_css = ff.read()
         return model_htmlfront, model_htmlback, model_css
@@ -2173,7 +2173,7 @@ class WordViewer(QWidget):
         except:
             return
         with open(
-            r"LunaTranslator\htmlcode\uiwebview\dictionary.html", "r", encoding="utf8"
+            r"LunaTranslator/htmlcode/uiwebview/dictionary.html", "r", encoding="utf8"
         ) as ff:
             frame = ff.read()
         if isinstance(html, Exception):
@@ -2189,14 +2189,14 @@ class WordViewer(QWidget):
             use_github_md_css = True
         if use_github_md_css:
             with open(
-                r"files\static\github-markdown-css\template.html", "r", encoding="utf8"
+                r"files/static/github-markdown-css/template.html", "r", encoding="utf8"
             ) as ff:
                 template = ff.read()
             # 模板里的 <link> 异步加载：流式增量更新时旧 link 随旧 DOM
             # 移除（样式即刻失效）、新 link 未就绪，每次更新都会闪无样式
             # 内容——这里换成内联 <style>（同步应用，无空窗）
             with open(
-                r"files\static\github-markdown-css\github-markdown.css",
+                r"files/static/github-markdown-css/github-markdown.css",
                 "r",
                 encoding="utf8",
             ) as ff:

@@ -37,7 +37,7 @@ if(WIN32)
 
     set(cv_opencv_lib libOpenCV)
 else()
-    find_package(OpenCV REQUIRED COMPONENTS core imgproc)
+    find_package(OpenCV REQUIRED COMPONENTS core imgproc OPTIONAL_COMPONENTS geometry)
     set(cv_opencv_lib ${OpenCV_LIBS})
 endif()
 

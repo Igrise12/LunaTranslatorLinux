@@ -1,6 +1,6 @@
 import os, time
 import codecs, hashlib, shutil
-import socket, gobject, uuid, functools
+import socket, gobject, uuid, functools, lunaplat
 from collections import OrderedDict
 import importlib, json, requests, subprocess, windows
 from qtsymbols import *
@@ -87,7 +87,7 @@ def __internal__getlang(k1: str, k2: str, default: str) -> str:
 
 def __translate_exits(fanyi):
     _fs = [
-        "Lunatranslator/translator/{}.py".format(fanyi),
+        "LunaTranslator/translator/{}.py".format(fanyi),
         gobject.getconfig("copyed/{}.py".format(fanyi)),
     ]
     for i, _ in enumerate(_fs):
@@ -143,6 +143,8 @@ def cishuexits(cishu, only_copy=False):
 
 def useExCheck(fanyi, which=None, key="fanyi"):
     # 当且仅当 useEx 调用并返回 False 时返回 False
+    if not lunaplat.supported(key, fanyi):
+        return False
     useExfunction = globalconfig[key][fanyi].get("useEx")
     if not useExfunction:
         return True
@@ -557,6 +559,8 @@ def splitocrtypes(dic, other=False):
     online: "list[str]" = []
     other: "list[str]" = []
     for k in dic:
+        if not lunaplat.supported(None, k):
+            continue
         try:
             {"online": online, "offline": offline, "other": other}[
                 dic[k].get("type", "online")
@@ -921,9 +925,12 @@ def subprochiderun(
     stdout=subprocess.PIPE,
 ) -> "subprocess.CompletedProcess|subprocess.Popen":
 
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    startupinfo.wShowWindow = subprocess.SW_HIDE
+    if os.name == "nt":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+    else:
+        startupinfo = None
 
     ss = (subprocess.run if run else subprocess.Popen)(
         cmd,

@@ -5,7 +5,7 @@ from myutils.commonbase import ArgsEmptyExc
 from myutils.hwnd import safepixmap
 from myutils.utils import stringfyerror
 from traceback import print_exc
-import threading, gobject, NativeUtils
+import threading, gobject, NativeUtils, lunaplat
 from ocrengines.baseocrclass import baseocr, OCRResultParsed
 
 
@@ -42,8 +42,10 @@ def __ocr_init():
     global _nowuseocr, _ocrengine, _nowuseocrx
     use = None
     for k in globalconfig["ocr"]:
-        if globalconfig["ocr"][k]["use"] == True and os.path.exists(
-            ("LunaTranslator/ocrengines/" + k + ".py")
+        if (
+            globalconfig["ocr"][k]["use"] == True
+            and os.path.exists(("LunaTranslator/ocrengines/" + k + ".py"))
+            and lunaplat.supported("ocr", k)
         ):
             use = k
             break

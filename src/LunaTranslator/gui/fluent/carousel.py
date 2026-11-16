@@ -41,8 +41,8 @@ from qtsymbols import (
     QVariantAnimation,
     QWidget,
     pyqtSignal,
+    QLinearGradient,
 )
-from PyQt5.QtGui import QLinearGradient
 from myutils.config import _TR
 
 # ---- 常量（同 excarousel.cpp 匿名命名空间）----

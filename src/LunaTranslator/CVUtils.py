@@ -12,7 +12,7 @@ from ctypes import (
     c_uint64,
 )
 from qtsymbols import *
-import gobject
+import gobject, lunaplat
 from gobject import unique_ptr
 import functools
 import locale
@@ -29,7 +29,7 @@ def _DelayLoadCVUtils():
 
     global _CVUtils
     if not _CVUtils:
-        _CVUtils = CDLL(gobject.GetDllpath("CVUtils.dll"))
+        _CVUtils = lunaplat.load_library(gobject.GetDllpath("CVUtils.dll"))
     return _CVUtils
 
 

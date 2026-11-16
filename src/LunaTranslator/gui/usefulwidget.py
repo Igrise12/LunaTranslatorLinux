@@ -2074,7 +2074,7 @@ def request_delete_ok(parent: QWidget = None, cache=None, title="确认删除"):
         dont_ask_checkbox = QCheckBox(_TR("本次运行期间不再询问"), msg_box)
         msg_box.setCheckBox(dont_ask_checkbox)
 
-    reply = msg_box.exec_()
+    reply = msg_box.exec()
     if reply == QMessageBox.StandardButton.Yes:
         if cache and dont_ask_checkbox.isChecked():
             _request_delete_ok_cache[cache] = 1
@@ -2099,7 +2099,7 @@ def request_for_something(parent: QWidget = None, cache=None, title="确认删�
         dont_ask_checkbox.setChecked(True)
         msg_box.setCheckBox(dont_ask_checkbox)
 
-    reply = msg_box.exec_()
+    reply = msg_box.exec()
     if dont_ask_checkbox.isChecked():
         _request_delete_ok_cache[cache] = reply == QMessageBox.StandardButton.Yes
     return reply == QMessageBox.StandardButton.Yes

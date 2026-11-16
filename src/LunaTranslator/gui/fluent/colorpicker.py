@@ -41,10 +41,11 @@ from qtsymbols import (
     QPoint,
     QToolButton,
     QBrush,
+    QStyleOptionSlider,
+    QStyleOptionToolButton,
+    QStyleOption,
+    QLinearGradient,
 )
-
-from PyQt5.QtWidgets import QStyleOptionSlider, QStyleOptionToolButton, QStyleOption
-from PyQt5.QtGui import QLinearGradient
 
 from gui.dynalang import LPushButton, LDialog
 from gui.fluent.tabwidget import TABBAR_STYLE_PIVOT_GROW

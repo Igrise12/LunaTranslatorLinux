@@ -347,7 +347,7 @@ class webview_common(dataget):
     def loadex_(extra=None):
         if not extra:
             extra = webview_common.loadextra()
-        basepath = r"LunaTranslator\htmlcode\uiwebview\mainui.html"
+        basepath = r"LunaTranslator/htmlcode/uiwebview/mainui.html"
         if not extra:
             return os.path.abspath(basepath)
         with open(basepath, "r", encoding="utf8") as ff:
@@ -363,7 +363,7 @@ class webview_common(dataget):
             return
         for _ in [
             gobject.getconfig("extrahtml.html"),
-            r"LunaTranslator\htmlcode\uiwebview\extrahtml\mainui.html",
+            r"LunaTranslator/htmlcode/uiwebview/extrahtml/mainui.html",
         ]:
             if not os.path.exists(_):
                 continue

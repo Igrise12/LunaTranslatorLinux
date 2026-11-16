@@ -38,12 +38,12 @@ from windows import AutoHandle
 from xml.sax.saxutils import escape
 import gobject, os, json, subprocess
 from gobject import unique_ptr
-import windows, functools, re, csv
+import windows, functools, re, csv, lunaplat
 from traceback import print_exc
 
 HRESULT = LONG
 
-utilsdll = CDLL(gobject.GetDllpath("NativeUtils.dll"))
+utilsdll = lunaplat.load_library(gobject.GetDllpath("NativeUtils.dll"))
 
 OpenFileEx = utilsdll.OpenFileEx
 OpenFileEx.argtypes = (LPCWSTR,)

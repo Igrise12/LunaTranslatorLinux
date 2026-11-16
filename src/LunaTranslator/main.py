@@ -13,6 +13,10 @@ def switchdir():
 
 switchdir()
 
+import lunaplat
+
+lunaplat.install()
+
 import gobject
 import windows
 from urllib.parse import urlsplit
@@ -61,6 +65,8 @@ def safestartfile(f):
 
 
 def overridepathexists():
+    if os.name != "nt":
+        return
     # win7上，如果假如没有D盘，然后os.path.exists("D:/...")，就会弹窗说不存在D盘
     # 对于不存在的UNC路径，会先进行网络探测，达到timeout才会返回，导致非常卡顿
     os.path.exists = dopathexists
@@ -252,7 +258,7 @@ def checkrunning(args):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-        if msg_box.exec_() != QMessageBox.StandardButton.Yes:
+        if msg_box.exec() != QMessageBox.StandardButton.Yes:
             os._exit(0)
 
 

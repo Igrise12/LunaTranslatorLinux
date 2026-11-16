@@ -2140,7 +2140,7 @@ def leftwidget(self, ref: "list[CollapsibleBoxWithButton]"):
     )
 
     btn4 = AutoScaleImageButton(
-        r"files\static\llama.cpp.light.png", r"files\static\llama.cpp.dark.png"
+        r"files/static/llama.cpp.light.png", r"files/static/llama.cpp.dark.png"
     )
     btn4.setAccessibleName("llama.cpp Launcher")
     btn4.setToolTip("llama.cpp Launcher")

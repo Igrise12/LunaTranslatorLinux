@@ -30,6 +30,7 @@ src/cache
 src/chrome_cache
 src/files/ocrmodel
 src/files/*.exe
+src/files/luna.ico
 src/files/DLL32
 src/files/DLL64
 src/files/LunaHook

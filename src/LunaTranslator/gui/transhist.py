@@ -382,7 +382,7 @@ class wvtranshist(WebviewWidget, somecommon):
                         extrahtml,
                         self,
                         "extrahtml_transhist.html",
-                        r"LunaTranslator\htmlcode\uiwebview\extrahtml\transhist.html",
+                        r"LunaTranslator/htmlcode/uiwebview/extrahtml/transhist.html",
                         self,
                     ),
                 ),
@@ -429,7 +429,7 @@ class wvtranshist(WebviewWidget, somecommon):
     def loadex_(extra=None):
         if not extra:
             extra = wvtranshist.loadextra()
-        basepath = r"LunaTranslator\htmlcode\uiwebview\transhist.html"
+        basepath = r"LunaTranslator/htmlcode/uiwebview/transhist.html"
         if not extra:
             return os.path.abspath(basepath)
         with open(basepath, "r", encoding="utf8") as ff:
@@ -443,7 +443,7 @@ class wvtranshist(WebviewWidget, somecommon):
     def loadextra():
         for _ in [
             gobject.getconfig("extrahtml_transhist.html"),
-            r"LunaTranslator\htmlcode\uiwebview\extrahtml\transhist.html",
+            r"LunaTranslator/htmlcode/uiwebview/extrahtml/transhist.html",
         ]:
             if not os.path.exists(_):
                 continue

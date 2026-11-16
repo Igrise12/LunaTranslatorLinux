@@ -1,5 +1,9 @@
 #include "ortwrapper.hpp"
 #include <opencv2/opencv.hpp>
+#if CV_VERSION_MAJOR >= 5
+// OpenCV 5 moved minAreaRect/getPerspectiveTransform into the geometry module
+#include <opencv2/geometry.hpp>
+#endif
 
 class CommonOnnxModel : public OnnxSession
 {
