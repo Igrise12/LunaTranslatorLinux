@@ -48,6 +48,13 @@ def in_gui_thread():
     return app is not None and QThread.currentThread() == app.thread()
 
 
+def post_to_gui(fn):
+    """Queue fn() on the GUI thread without waiting."""
+    if QApplication.instance() is None:
+        return
+    _get_invoker().call.emit((fn, [], threading.Event()))
+
+
 def run_in_gui(fn, timeout=5.0, default=None):
     """Call fn() on the GUI thread. Returns default if there is no
     QApplication yet or the GUI thread does not answer in time."""

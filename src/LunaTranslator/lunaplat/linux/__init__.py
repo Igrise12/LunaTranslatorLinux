@@ -27,6 +27,9 @@ PATCHES = {
     "NativeUtils": "lunaplat.linux.nativeutils_impl",
     "myutils.hwnd": "lunaplat.linux.hwnd_impl",
     "textio.textsource.texthook": "lunaplat.linux.texthook_impl",
+    "gui.fluent.frameless": "lunaplat.linux.fluent_impl",
+    "ocrengines.tesseract5": "lunaplat.linux.tools_impl:patch_tesseract",
+    "translator.cdp_helper": "lunaplat.linux.tools_impl:patch_cdp",
 }
 
 
@@ -130,8 +133,9 @@ class _PatchingLoader(importlib.abc.Loader):
 
     def exec_module(self, module):
         self._inner.exec_module(module)
-        impl = importlib.import_module(self._patcher)
-        impl.patch(module)
+        modname, _, func = self._patcher.partition(":")
+        impl = importlib.import_module(modname)
+        getattr(impl, func or "patch")(module)
 
 
 class _PatchFinder(importlib.abc.MetaPathFinder):

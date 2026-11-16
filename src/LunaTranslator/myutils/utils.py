@@ -931,6 +931,12 @@ def subprochiderun(
         startupinfo.wShowWindow = subprocess.SW_HIDE
     else:
         startupinfo = None
+        if isinstance(cmd, str):
+            # Windows accepts '"C:\\x\\tool.exe" --arg' as one string; POSIX
+            # treats a string as the program name unless it is split
+            import shlex
+
+            cmd = shlex.split(cmd)
 
     ss = (subprocess.run if run else subprocess.Popen)(
         cmd,

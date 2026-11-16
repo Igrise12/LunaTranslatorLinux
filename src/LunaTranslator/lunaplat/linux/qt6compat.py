@@ -26,6 +26,23 @@ _MODULES = (
 _done = set()
 
 
+def _enum_value(self):
+    return self.value
+
+
+def _make_int_convertible(enum_cls):
+    """PyQt5 enums/flags were ints; PyQt6 ones are enum.Enum/Flag and reject
+    int(). Upstream code does int(QStyle.State_Enabled) and the like."""
+    if issubclass(enum_cls, int):
+        return
+    for name in ("__int__", "__index__"):
+        if name not in enum_cls.__dict__:
+            try:
+                setattr(enum_cls, name, _enum_value)
+            except (AttributeError, TypeError):
+                pass
+
+
 def promote_enums(module):
     for class_name in dir(module):
         if not class_name.startswith("Q"):
@@ -39,11 +56,15 @@ def promote_enums(module):
             attrib = getattr(klass, attrib_name, None)
             if not isinstance(attrib, enum.EnumMeta):
                 continue
-            for member in attrib:
-                if member.name in klass.__dict__:
+            _make_int_convertible(attrib)
+            # __members__ includes aliases and composite flags (e.g.
+            # Qt.AlignCenter = AlignHCenter | AlignVCenter), which plain
+            # iteration over an enum.Flag skips
+            for name, member in attrib.__members__.items():
+                if name in klass.__dict__:
                     continue
                 try:
-                    setattr(klass, member.name, member)
+                    setattr(klass, name, member)
                 except (AttributeError, TypeError):
                     pass
 
@@ -73,7 +94,37 @@ def apply_all():
         _done.add(name)
 
 
+def _wrap_qapplication(qtsymbols_module):
+    """Make `from qtsymbols import QApplication` hand out a subclass that
+    installs our window-manager hints as soon as the application exists."""
+    base = qtsymbols_module.QApplication
+
+    class QApplication(base):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            try:
+                from lunaplat.linux.qt import windowtypes
+
+                windowtypes.install(self)
+            except Exception:
+                import traceback
+
+                traceback.print_exc()
+            try:
+                from lunaplat.linux import fonts
+
+                fonts.ensure_fluent_icon_font()
+            except Exception:
+                import traceback
+
+                traceback.print_exc()
+
+    QApplication.__name__ = base.__name__
+    QApplication.__qualname__ = base.__qualname__
+    qtsymbols_module.QApplication = QApplication
+
+
 def patch(qtsymbols_module):
-    if getattr(qtsymbols_module, "isqt5", True):
-        return
-    apply_all()
+    if not getattr(qtsymbols_module, "isqt5", True):
+        apply_all()
+    _wrap_qapplication(qtsymbols_module)

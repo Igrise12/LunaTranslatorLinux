@@ -135,10 +135,141 @@ def IsProcessRunning(pid):
 
 
 def GetProcessFileName(pid):
-    try:
-        return os.readlink("/proc/{}/exe".format(int(pid)))
-    except OSError:
+    from lunaplat.linux import proc
+
+    return proc.process_file_name(pid)
+
+
+def ListProcess(exe=None):
+    """{exe path: [pids]} of candidate game processes (Wine processes), or
+    the pid list for one exe path."""
+    from lunaplat.linux import proc
+
+    groups = proc.list_process_groups()
+    if exe is None:
+        return groups
+    target = os.path.realpath(exe)
+    for path, pids in groups.items():
+        if os.path.realpath(path) == target:
+            return pids
+    return []
+
+
+def GetParentProcessID(pid):
+    from lunaplat.linux import proc
+
+    return proc.parent_pid(pid)
+
+
+def Is64bit(pid):
+    """Bitness of the program a process runs (PE header for Wine games)."""
+    path = GetProcessFileName(pid)
+    if path and path.lower().endswith(".exe"):
+        try:
+            import struct
+
+            with open(path, "rb") as f:
+                head = f.read(0x40)
+                off = struct.unpack_from("<I", head, 0x3C)[0]
+                f.seek(off + 4)
+                machine = struct.unpack("<H", f.read(2))[0]
+            return machine in (0x8664, 0xAA64)
+        except Exception:
+            pass
+    return sys.maxsize > 2**32
+
+
+# ---- windows -------------------------------------------------------------
+
+
+def IsWindowViewable(hwnd):
+    from lunaplat.linux import x11
+
+    return x11.is_viewable(hwnd)
+
+
+def GetProcessFirstWindow(pid):
+    from lunaplat.linux import x11
+
+    for xid in x11.client_list():
+        if x11.window_pid(xid) == int(pid) and x11.is_viewable(xid):
+            return xid
+    return 0
+
+
+def SetWindowInTaskbar(hwnd, show, ismain):
+    from lunaplat.linux.qt import windowtypes
+
+    windowtypes.remember_skip_taskbar(int(hwnd), not show)
+
+
+def mouseselectwindow(callback):
+    """Click a window to pick it: callback(pid, hwnd); right click or Escape
+    cancels with callback(0, None). Runs on a worker thread."""
+    import threading
+
+    from lunaplat.linux.x11 import pick
+
+    threading.Thread(target=pick.pick_window, args=(callback,), daemon=True).start()
+
+
+def MouseMoveWindow(hwnd):
+    from lunaplat.linux import windows_impl
+    from lunaplat.linux.qtthread import run_in_gui
+
+    w = windows_impl._own_widget(hwnd)
+    if w is not None and w.windowHandle() is not None:
+        run_in_gui(lambda: w.windowHandle().startSystemMove())
+
+
+# ---- capture -------------------------------------------------------------
+
+
+def GdiCropImage(x1, y1, x2, y2, hwnd=None, curr=-1):
+    """(succ, encoded image) of a screen rectangle. Grabbing a single window's
+    own contents (curr=0) is not possible on Linux/XWayland, so that attempt
+    fails and callers fall back to the desktop (curr=1)."""
+    from lunaplat.linux import capture
+
+    if curr == 0:
+        return False, None
+    data = capture.grab_rect_coords(x1, y1, x2, y2)
+    return (data is not None), data
+
+
+def GdiGrabWindow(hwnd):
+    from lunaplat.linux import capture, x11
+
+    rect = x11.window_rect(hwnd) if hwnd else None
+    if not rect:
         return None
+    return capture.grab_rect_coords(rect[0], rect[1], rect[2] - 1, rect[3] - 1)
+
+
+def find_sole_opaque_window(x1, y1, x2, y2, exclude_pid):
+    return 0
+
+
+def CreateSelectRangeWindow(parent, alpha, r, g, b, width, cb):
+    from lunaplat.linux.qt.rangeselect import select_range
+
+    select_range(parent, alpha, r, g, b, width, cb)
+
+
+# ---- hotkeys -------------------------------------------------------------
+
+
+def RegisterHotKey(_, cb):
+    from lunaplat.linux.x11 import hotkeys
+
+    mod, vk = _
+    return hotkeys.register(mod, vk, cb)
+
+
+def UnRegisterHotKey(uid):
+    from lunaplat.linux.x11 import hotkeys
+
+    hotkeys.unregister(uid)
 
 
 def getcurrexe():
@@ -211,6 +342,12 @@ def globalmessagelistener(wineventcb, wndmsgcb):
 
     qtthread._get_invoker()
     _clip.connect_listener(wndmsgcb)
+    from lunaplat.linux import x11
+
+    if x11.available():
+        from lunaplat.linux.x11 import events
+
+        events.start(wineventcb)
     try:
         from qtsymbols import QGuiApplication
 
@@ -242,3 +379,31 @@ def patch(mod):
     mod.GetDevicePixelRatioF = GetDevicePixelRatioF
     mod.IsMultiDifferentDPI = IsMultiDifferentDPI
     mod.IsRunningOnWine = IsRunningOnWine
+    from lunaplat.linux import proc as _proc
+
+    mod.SuspendResumeProcess = _proc.suspend_resume
+    mod.GetProcessListenPort = _proc.listen_port
+    mod.ListProcess = ListProcess
+    mod.GetParentProcessID = GetParentProcessID
+    mod.Is64bit = Is64bit
+    mod.GdiCropImage = GdiCropImage
+    mod.GdiGrabWindow = GdiGrabWindow
+    mod.find_sole_opaque_window = find_sole_opaque_window
+    mod.CreateSelectRangeWindow = CreateSelectRangeWindow
+    mod.RegisterHotKey = RegisterHotKey
+    mod.UnRegisterHotKey = UnRegisterHotKey
+    mod.SetWindowInTaskbar = SetWindowInTaskbar
+    from lunaplat.linux import audiomute, desktopentry
+
+    mod.StartMonitorVolume = audiomute.StartMonitorVolume
+    mod.MonitorPidVolume = audiomute.MonitorPidVolume
+    mod.SetCurrProcessMute = audiomute.SetCurrProcessMute
+    mod.CreateUrlProtocol = desktopentry.CreateUrlProtocol
+    mod.CreateShortcut = desktopentry.CreateShortcut
+    from lunaplat.linux import x11
+
+    if x11.available():
+        mod.IsWindowViewable = IsWindowViewable
+        mod.GetProcessFirstWindow = GetProcessFirstWindow
+        mod.mouseselectwindow = mouseselectwindow
+        mod.MouseMoveWindow = MouseMoveWindow
