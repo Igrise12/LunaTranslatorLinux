@@ -57,23 +57,35 @@ wineserver -w
 wineserver -p
 trap 'wineserver -k >/dev/null 2>&1 || true' EXIT
 
+# LunaTmpFontLoader.dll (font replacement in Mono-backend Unity games) is
+# C#; Mono's mcs accepts the same csc-style options. Optional.
+FONTLOADER=(-DBUILD_TMPFONTLOADER=OFF)
+MCS="$(command -v mcs || true)"
+MSCORLIB=""
+for d in /usr/lib/mono/4.5 /usr/lib/mono/4.8-api /usr/lib/mono/4.7.2-api; do
+    [ -f "$d/mscorlib.dll" ] && { MSCORLIB="$d/mscorlib.dll"; break; }
+done
+if [ -n "$MCS" ] && [ -n "$MSCORLIB" ]; then
+    FONTLOADER=(-DBUILD_TMPFONTLOADER=ON "-Dcsc=$MCS" "-Dmscorlib=$MSCORLIB")
+else
+    echo "note: mono (mcs) not found, skipping LunaTmpFontLoader.dll" >&2
+fi
+
 for arch in "${ARCHS[@]}"; do
     BUILD="$NATIVE/build/wine-$arch"
     [ "$CLEAN" = 1 ] && rm -rf "$BUILD"
-    if [ ! -f "$BUILD/build.ninja" ]; then
-        cmake -S "$HOOK" -B "$BUILD" -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="$NATIVE/cmake/msvc-wine.cmake" \
-            -DMSVC_WINE_ARCH="$arch" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DWIN10ABOVE=ON -DBUILD_HOOK=ON -DBUILD_HOST=ON -DBUILD_BRIDGE=ON \
-            -DBUILD_TMPFONTLOADER=OFF
-    fi
+    cmake -S "$HOOK" -B "$BUILD" -G Ninja \
+        -DCMAKE_TOOLCHAIN_FILE="$NATIVE/cmake/msvc-wine.cmake" \
+        -DMSVC_WINE_ARCH="$arch" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DWIN10ABOVE=ON -DBUILD_HOOK=ON -DBUILD_HOST=ON -DBUILD_BRIDGE=ON \
+        "${FONTLOADER[@]}" >/dev/null
     cmake --build "$BUILD" -j "$(nproc)"
 done
 
 OUT="$HOOK/builds/Release_win10"
 mkdir -p "$DEPLOY"
-for f in LunaHook32.dll LunaHook64.dll LunaHost32.dll LunaHost64.dll LunaBridge32.exe LunaBridge64.exe; do
+for f in LunaHook32.dll LunaHook64.dll LunaHost32.dll LunaHost64.dll LunaBridge32.exe LunaBridge64.exe LunaTmpFontLoader.dll; do
     if [ -f "$OUT/$f" ]; then
         cp -f "$OUT/$f" "$DEPLOY/"
         echo "deployed $f"

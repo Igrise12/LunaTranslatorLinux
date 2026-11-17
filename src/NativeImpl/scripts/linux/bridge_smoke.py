@@ -24,6 +24,10 @@ SRC = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 sys.path.insert(0, os.path.join(SRC, "LunaTranslator"))
 os.chdir(SRC)
 
+import lunaplat  # noqa: E402
+
+lunaplat.install()
+
 from ctypes import CFUNCTYPE, Structure, c_bool, c_char_p, c_int, c_uint, c_uint64, c_void_p, c_wchar_p  # noqa: E402
 from ctypes.wintypes import DWORD  # noqa: E402
 
@@ -39,6 +43,7 @@ def main():
     ap.add_argument("--arch", default="64", choices=["64", "32"])
     ap.add_argument("--prefix", default=os.path.expanduser("~/.cache/lunatranslator/smoke-prefix"))
     ap.add_argument("--seconds", type=int, default=25)
+    ap.add_argument("--embed", action="store_true", help="also test embedded translation (checked with local OCR)")
     args = ap.parse_args()
 
     target = os.path.join(SRC, "NativeImpl", "LunaHook", "builds", "Release_win10", "hooktarget{}.exe".format(args.arch))
@@ -55,15 +60,29 @@ def main():
     lib = mgr.library()
     texts = []
     events = []
+    embeds = []
+
+    def on_thread(code, name, tp, embeddable):
+        events.append(("thread", code, name, embeddable))
+        if args.embed and embeddable:
+            lib.Luna_UseEmbed(ThreadParam(tp.processId, tp.addr, tp.ctx, tp.ctx2), True)
+
+    def on_embed(text, tp):
+        # same length as the original: TextOutW keeps its character count
+        n = len(embeds) + 1
+        trans = ("EMBEDDED-{}".format(n) + " " * len(text))[: len(text)]
+        embeds.append((text, trans))
+        lib.Luna_EmbedCallback(ThreadParam(tp.processId, tp.addr, tp.ctx, tp.ctx2), text, trans)
+
     procs = [
         CFUNCTYPE(None, DWORD)(lambda pid: events.append(("connect", pid))),
         CFUNCTYPE(None, DWORD)(lambda pid: events.append(("disconnect", pid))),
-        CFUNCTYPE(None, c_wchar_p, c_char_p, ThreadParam, c_bool)(lambda c, n, tp, e: events.append(("thread", c, n))),
+        CFUNCTYPE(None, c_wchar_p, c_char_p, ThreadParam, c_bool)(on_thread),
         CFUNCTYPE(None, c_wchar_p, c_char_p, ThreadParam)(lambda c, n, tp: None),
         CFUNCTYPE(None, c_wchar_p, c_char_p, ThreadParam, c_wchar_p)(lambda c, n, tp, t: texts.append((c, t))),
         CFUNCTYPE(None, c_int, c_wchar_p)(lambda t, s: events.append(("info", t, s))),
         CFUNCTYPE(None, DWORD, c_uint64, c_wchar_p)(lambda p, a, c: events.append(("hookinsert", c))),
-        CFUNCTYPE(None, c_wchar_p, ThreadParam)(lambda t, tp: None),
+        CFUNCTYPE(None, c_wchar_p, ThreadParam)(on_embed),
         CFUNCTYPE(c_void_p, c_wchar_p)(lambda s: lib.Luna_AllocString(s)),
         CFUNCTYPE(None, c_wchar_p, c_wchar_p, c_wchar_p)(lambda a, b, c: None),
     ]
@@ -98,14 +117,60 @@ def main():
     while time.time() < end and not texts:
         time.sleep(0.5)
 
-    print("events:", events[:12])
+    embed_ok = None
+    if args.embed:
+        embed_ok = check_embed(args, lib, winpids, embeds, end, game)
+
+    print("events:", [e for e in events if e[0] != "info"][:12])
     print("texts:", texts[:5])
     game.kill()
     for c in list(mgr.server.connections):
         c.close()
-    ok = any("テスト" in t for _, t in texts)
+    ok = any("テスト" in t for _, t in texts) and embed_ok is not False
     print("PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)
+
+
+def check_embed(args, lib, winpids, embeds, end, game):
+    """Insert an embeddable copy of the TextOutW hook, let on_thread enable
+    embedding and on_embed answer with "EMBEDDED-n", then OCR the window."""
+    code = "ENHQ10@0:gdi32.dll:TextOutW" if args.arch == "32" else "ENHQ-24@0:gdi32.dll:TextOutW"
+    for pid in winpids:
+        # waittime 2000ms, charset 2, displaymode TRANS (0)
+        lib.Luna_SettingsEx(pid, 2000, 2, False, "", 0, True, False, False, 1.0, True, "")
+        lib.Luna_InsertHookCode(pid, code)
+    while time.time() < end and len(embeds) < 3:
+        time.sleep(0.5)
+    print("embed requests:", embeds[:3])
+    if not embeds:
+        return False
+    time.sleep(1.5)
+    shot = grab_window_text(game.pid)
+    print("window OCR:", shot)
+    return bool(shot) and "EMBEDDED" in shot.replace(" ", "")
+
+
+def grab_window_text(unix_pid):
+    from lunaplat.linux import x11, proc
+    from qtsymbols import QApplication, QImage, QRect
+
+    app = QApplication.instance() or QApplication(sys.argv)
+    pids = {unix_pid} | {p for p, _, _ in proc.list_wine_processes()}
+    for xid in x11.client_list():
+        if x11.window_pid(xid) in pids and "hooktarget" in x11.window_class(xid)[0].lower():
+            l, t, r, b = x11.window_rect(xid)
+            x11.set_state(xid, "_NET_WM_STATE_ABOVE", True)  # make sure it is visible
+            time.sleep(1.0)
+            from lunaplat.linux import capture
+
+            data = capture.grab(QRect(l, t, r - l, b - t))
+            if not data:
+                return ""
+            import importlib
+
+            ocr = importlib.import_module("ocrengines.local").OCR("local")
+            return " ".join(ocr.ocr(QImage.fromData(data)).texts)
+    return ""
 
 
 if __name__ == "__main__":
