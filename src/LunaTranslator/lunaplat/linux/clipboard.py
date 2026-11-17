@@ -223,8 +223,13 @@ class _WlWatcher(object):
         # only when there is one; remember it so that report can be ignored
         self.initial = _WlClipboard.get_text()
         self.started = time.monotonic()
-        try:
-            self.proc = subprocess.Popen(
+        # forked by the long-lived spawner thread with PR_SET_PDEATHSIG, so
+        # the watcher dies with the app (which ends with os._exit, so no
+        # cleanup hook runs)
+        from lunaplat.linux.audio import _pdeathsig, _spawner
+
+        def start():
+            return subprocess.Popen(
                 [
                     "wl-paste",
                     "--no-newline",
@@ -238,7 +243,11 @@ class _WlWatcher(object):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 stdin=subprocess.DEVNULL,
+                preexec_fn=_pdeathsig,
             )
+
+        try:
+            self.proc = _spawner.run(start)
         except OSError:
             return False
         threading.Thread(target=self._read, daemon=True).start()

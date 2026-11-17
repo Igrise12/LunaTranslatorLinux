@@ -73,10 +73,17 @@ def windowsversion():
     return (10, 0, 19045)
 
 
+# plugins that exist only for Linux (their entries are added to the config
+# there); hidden on Windows in case a config saved on Linux is reused
+_LINUX_ONLY = {"reader": ("espeakng", "piper")}
+
+
 def supported(kind, key):
     """Whether a plugin (kind: fanyi/ocr/reader/cishu/...) works here."""
     if iswindows:
-        return True
+        if kind is None:
+            return not any(key in _ for _ in _LINUX_ONLY.values())
+        return key not in _LINUX_ONLY.get(kind, ())
     from lunaplat.linux.features import supported as _supported
 
     return _supported(kind, key)

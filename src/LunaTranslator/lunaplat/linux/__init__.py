@@ -20,19 +20,32 @@ import os
 import subprocess
 import sys
 
-# module name -> "lunaplat.linux.<module>" providing patch(module)
+# module name -> "lunaplat.linux.<module>" providing patch(module), or
+# "lunaplat.linux.<module>:<func>", or a list of these (applied in order)
 PATCHES = {
     "qtsymbols": "lunaplat.linux.qt6compat",
     "windows": "lunaplat.linux.windows_impl",
-    "NativeUtils": "lunaplat.linux.nativeutils_impl",
+    "NativeUtils": [
+        "lunaplat.linux.nativeutils_impl",
+        "lunaplat.linux.audio:patch_nativeutils",
+    ],
     "myutils.hwnd": "lunaplat.linux.hwnd_impl",
     "textio.textsource.texthook": "lunaplat.linux.texthook_impl",
     "gui.fluent.frameless": "lunaplat.linux.fluent_impl",
     "ocrengines.tesseract5": "lunaplat.linux.tools_impl:patch_tesseract",
     "translator.cdp_helper": "lunaplat.linux.tools_impl:patch_cdp",
-    "myutils.config": "lunaplat.linux.gameident:patch_config",
+    "myutils.config": [
+        "lunaplat.linux.gameident:patch_config",
+        "lunaplat.linux.ttsengines:patch_config",
+        "lunaplat.linux.webview_impl:patch_config_strings",
+    ],
     "gui.gamemanager.common": "lunaplat.linux.gamescan:patch_common",
     "myutils.localetools": "lunaplat.linux.launchers",
+    "myutils.audioplayer": "lunaplat.linux.audio:patch_audioplayer",
+    "myutils.utils": "lunaplat.linux.audio:patch_utils",
+    "gui.usefulwidget": "lunaplat.linux.webview_impl",
+    "gui.setting.display_text": "lunaplat.linux.webview_impl:patch_display_text",
+    "gui.fluent": "lunaplat.linux.accent",
 }
 
 
@@ -136,9 +149,13 @@ class _PatchingLoader(importlib.abc.Loader):
 
     def exec_module(self, module):
         self._inner.exec_module(module)
-        modname, _, func = self._patcher.partition(":")
-        impl = importlib.import_module(modname)
-        getattr(impl, func or "patch")(module)
+        patchers = self._patcher
+        if isinstance(patchers, str):
+            patchers = (patchers,)
+        for patcher in patchers:
+            modname, _, func = patcher.partition(":")
+            impl = importlib.import_module(modname)
+            getattr(impl, func or "patch")(module)
 
 
 class _PatchFinder(importlib.abc.MetaPathFinder):
@@ -169,6 +186,19 @@ def _install_patch_registry():
     sys.meta_path.insert(0, _PatchFinder())
 
 
+def _prepare_webengine():
+    """QtWebEngine (lunaplat.linux.qt.webengine) is imported lazily, after
+    the QApplication exists; Qt then needs this attribute set beforehand."""
+    try:
+        from PyQt6.QtCore import QCoreApplication, Qt
+
+        QCoreApplication.setAttribute(
+            Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True
+        )
+    except Exception:
+        pass
+
+
 def install_linux():
     _choose_qt_platform()
     _install_windll_stub()
@@ -176,3 +206,4 @@ def install_linux():
     _install_proxy_shim()
     os.startfile = _startfile
     _install_patch_registry()
+    _prepare_webengine()

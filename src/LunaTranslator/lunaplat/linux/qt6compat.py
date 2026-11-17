@@ -111,6 +111,15 @@ def _wrap_qapplication(qtsymbols_module):
 
                 traceback.print_exc()
             try:
+                # create the cross-thread invoker on the GUI thread up front
+                from lunaplat.linux import qtthread
+
+                qtthread._get_invoker()
+            except Exception:
+                import traceback
+
+                traceback.print_exc()
+            try:
                 from lunaplat.linux import fonts
 
                 fonts.ensure_fluent_icon_font()

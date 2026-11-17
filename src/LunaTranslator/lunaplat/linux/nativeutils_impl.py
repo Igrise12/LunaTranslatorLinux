@@ -102,13 +102,24 @@ class AutoKillProcess(object):
             cmd = shlex.split(commandorpid)
         else:
             cmd = list(commandorpid)
-        self._proc = subprocess.Popen(
-            cmd,
-            cwd=path or None,
-            stdin=subprocess.DEVNULL,
-            preexec_fn=_pdeathsig if kill else None,
-            start_new_session=not kill,
-        )
+        def start():
+            return subprocess.Popen(
+                cmd,
+                cwd=path or None,
+                stdin=subprocess.DEVNULL,
+                preexec_fn=_pdeathsig if kill else None,
+                start_new_session=not kill,
+            )
+
+        if kill:
+            # PR_SET_PDEATHSIG fires when the *thread* that forked the child
+            # ends; callers often run in short-lived worker threads, so fork
+            # from the long-lived spawner thread instead
+            from lunaplat.linux.audio import _spawner
+
+            self._proc = _spawner.run(start)
+        else:
+            self._proc = start()
         self.pid = self._proc.pid
 
     def setkill(self, kill):
@@ -303,6 +314,11 @@ def IsDark():
                 return False
     except Exception:
         pass
+    from lunaplat.linux import accent
+
+    scheme = accent.portal_color_scheme()
+    if scheme in (1, 2):
+        return scheme == 1
     theme = os.environ.get("GTK_THEME", "").lower()
     return "dark" in theme
 
@@ -361,6 +377,106 @@ def dispatchcloseevent():
     pass
 
 
+# ---- selected text / web view menus ------------------------------------
+
+
+def _wl_primary():
+    """Wayland primary selection through wl-paste; None if unavailable."""
+    import shutil
+
+    if not (os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-paste")):
+        return None
+    try:
+        r = subprocess.run(
+            ["wl-paste", "--primary", "--no-newline", "--type", "text"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return ""  # "Nothing is copied"
+    return r.stdout.decode("utf-8", "replace")
+
+
+def _qt_primary():
+    """X11 PRIMARY (we run on xcb/XWayland) through Qt; None if the platform
+    has no selection clipboard."""
+
+    def _get():
+        from PyQt6.QtGui import QClipboard
+        from qtsymbols import QApplication
+
+        cb = QApplication.clipboard()
+        if cb is None or not cb.supportsSelection():
+            return None
+        return cb.text(QClipboard.Mode.Selection)
+
+    from lunaplat.linux.qtthread import run_in_gui
+
+    return run_in_gui(_get, timeout=3)
+
+
+def GetSelectedText():
+    """Text selected in the focused application, i.e. the PRIMARY selection
+    (Win32 build: UI Automation). Wayland sessions keep separate PRIMARY
+    selections for native Wayland and for X11 (XWayland, e.g. Wine games)
+    clients, so the Wayland one is read with wl-paste and, when empty, the
+    X11 one through Qt. Returns None when neither can be read, "" when
+    nothing is selected."""
+    # an X11 window (Wine game, XWayland app) has the focus: its PRIMARY is
+    # the current one; the Wayland PRIMARY may hold a stale selection
+    x11_focused = False
+    try:
+        from lunaplat.linux import x11
+
+        x11_focused = bool(x11.available() and x11.active_window())
+    except Exception:
+        pass
+    if x11_focused:
+        x = _qt_primary()
+        if x:
+            return x
+    wl = _wl_primary()
+    if wl:
+        return wl
+    x = _qt_primary()
+    if x is None:
+        return wl
+    return x
+
+
+class MenuItem(object):
+    """Context-menu entry for the web views (rendered by
+    lunaplat.linux.qt.webengine as a QMenu instead of a native menu)."""
+
+    def __init__(
+        self,
+        issep=False,
+        checkable=False,
+        checked=False,
+        clicked=None,
+        text="",
+        translate=True,
+    ):
+        self.issep = issep
+        self.checkable = checkable
+        self.checked = checked
+        self.clicked = clicked
+        self.rawtext = text
+        if translate and text:
+            from myutils.config import _TR
+
+            text = _TR(text)
+        self.text = text
+        self.sub = []
+
+    def appendSub(self, sub):
+        self.sub.append(sub)
+
+
 def patch(mod):
     mod.ClipBoard = _clip.ClipBoard
     mod.ClipBoardListenerStart = _clip.ClipBoardListenerStart
@@ -393,6 +509,8 @@ def patch(mod):
     mod.RegisterHotKey = RegisterHotKey
     mod.UnRegisterHotKey = UnRegisterHotKey
     mod.SetWindowInTaskbar = SetWindowInTaskbar
+    mod.GetSelectedText = GetSelectedText
+    mod.MenuItem = MenuItem
     from lunaplat.linux import audiomute, desktopentry
 
     mod.StartMonitorVolume = audiomute.StartMonitorVolume

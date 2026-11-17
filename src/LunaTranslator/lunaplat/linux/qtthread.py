@@ -8,6 +8,11 @@ import threading
 
 from qtsymbols import QApplication, QObject, QThread, Qt, pyqtSignal
 
+try:
+    from PyQt6.QtCore import pyqtSlot
+except ImportError:  # PyQt5
+    from PyQt5.QtCore import pyqtSlot
+
 
 class _Invoker(QObject):
     call = pyqtSignal(object)
@@ -16,6 +21,9 @@ class _Invoker(QObject):
         super().__init__()
         self.call.connect(self._run, Qt.ConnectionType.QueuedConnection)
 
+    # a real slot: queued calls then run in the invoker's (GUI) thread even
+    # when the invoker was created by a worker thread and moved over
+    @pyqtSlot(object)
     def _run(self, job):
         fn, box, done = job
         try:

@@ -68,12 +68,11 @@ def _report():
 
 def _watch():
     try:
-        proc = subprocess.Popen(
-            ["pactl", "subscribe"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            encoding="utf8",
-        )
+        # dies with the app (the app ends with os._exit, so no cleanup hook
+        # would run)
+        from lunaplat.linux.audio import _popen
+
+        proc = _popen(["pactl", "subscribe"], stdout=subprocess.PIPE, encoding="utf8")
     except OSError:
         return
     for line in proc.stdout:
