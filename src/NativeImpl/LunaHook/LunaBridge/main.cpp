@@ -886,9 +886,12 @@ static bool endpoint(std::string &host, int &port, std::string &token)
         port = atoi(ep.c_str() + colon + 1);
         return port > 0;
     }
-    std::string runtime = env_utf8(L"XDG_RUNTIME_DIR");
+    // Wine renames the host's XDG_* variables to WINE_HOST_XDG_*
+    std::string runtime = env_utf8(L"WINE_HOST_XDG_RUNTIME_DIR");
     if (runtime.empty())
-        return false;
+        runtime = env_utf8(L"XDG_RUNTIME_DIR");
+    if (runtime.empty())
+        runtime = "/tmp"; // what the app uses without XDG_RUNTIME_DIR
     std::wstring dos = dos_path_of(runtime + "/lunatranslator/bridge.txt");
     if (dos.empty())
         return false;
@@ -943,12 +946,110 @@ static SOCKET connect_with_retry(int seconds)
     return INVALID_SOCKET;
 }
 
+// Become a Wine "system" process, like services.exe or explorer.exe: such
+// processes do not keep the prefix's session alive. Without this the bridge
+// counts as a running program, so after the game exits Proton's steam.exe
+// (and with it Steam's "running" state, umu-run and the container) or
+// `wineserver -w` would wait for the bridge. The wineserver ends system
+// processes when it shuts down.
+static LONG make_process_system()
+{
+    typedef LONG(NTAPI * NtSetInformationProcess_t)(HANDLE, ULONG, PVOID, ULONG);
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    auto setinfo = (NtSetInformationProcess_t)GetProcAddress(ntdll, "NtSetInformationProcess");
+    HANDLE ev = nullptr;
+    // ProcessWineMakeProcessSystem (= 1000) in current Wine/Proton
+    LONG status = setinfo ? setinfo(GetCurrentProcess(), 1000, &ev, sizeof(ev)) : -1;
+    if (status == 0)
+        return 0;
+    // older Wine
+    typedef HANDLE(CDECL * make_system_t)(void);
+    auto old = (make_system_t)GetProcAddress(ntdll, "__wine_make_process_system");
+    if (old && old())
+        return 0;
+    return status;
+}
+
+// Programs of Wine/Proton itself, never the game.
+static bool is_helper_process(const wchar_t *exe)
+{
+    static const wchar_t *const names[] = {
+        L"services.exe", L"winedevice.exe", L"plugplay.exe", L"svchost.exe", L"explorer.exe",
+        L"rpcss.exe", L"tabtip.exe", L"xalia.exe", L"steam.exe", L"start.exe", L"conhost.exe",
+        L"wineboot.exe", L"winemenubuilder.exe", L"rundll32.exe", L"mscorsvw.exe", L"winedbg.exe",
+        L"LunaBridge32.exe", L"LunaBridge64.exe"};
+    for (auto n : names)
+        if (_wcsicmp(exe, n) == 0)
+            return true;
+    return false;
+}
+
+static bool session_has_programs()
+{
+    bool any = false;
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    PROCESSENTRY32W pe{sizeof(pe)};
+    if (snap == INVALID_HANDLE_VALUE)
+    {
+        if (getenv("LUNA_BRIDGE_DEBUG"))
+            fprintf(stderr, "LunaBridge: process snapshot failed (%lu)\n", GetLastError());
+        return true; // unknown: stay
+    }
+    if (Process32FirstW(snap, &pe))
+        do
+        {
+            if (pe.th32ProcessID != GetCurrentProcessId() && pe.th32ProcessID != 0 && !is_helper_process(pe.szExeFile))
+                any = true;
+        } while (!any && Process32NextW(snap, &pe));
+    CloseHandle(snap);
+    return any;
+}
+
+// End the bridge when the prefix has no programs left. A bridge the app
+// started is for a game that is already running; one started by Proton
+// next to the game (launch option, no LUNA_BRIDGE_ENDPOINT) first waits for
+// a program to appear. The wineserver ends system processes by itself, but
+// only after its idle timeout; this also covers a persistent wineserver.
+static void watch_session()
+{
+    bool app_started = !env_utf8(L"LUNA_BRIDGE_ENDPOINT").empty();
+    std::thread([app_started]
+                {
+        bool seen = app_started;
+        int empty = 0;
+        for (;;)
+        {
+            Sleep(1500);
+            if (session_has_programs())
+            {
+                seen = true;
+                empty = 0;
+            }
+            else if (seen && ++empty >= 2)
+            {
+                if (getenv("LUNA_BRIDGE_DEBUG"))
+                    fprintf(stderr, "LunaBridge: no programs left in the prefix, exiting\n");
+                // not ExitProcess: LunaHost's DLL detach can block on its
+                // worker threads; the games it served are gone anyway
+                TerminateProcess(GetCurrentProcess(), 0);
+            }
+        } })
+        .detach();
+}
+
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 {
     int argc = 0;
     wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (argc >= 4 && wcscmp(argv[1], L"--inject") == 0)
         return inject((DWORD)_wtoi(argv[2]), argv[3]) ? 0 : 1;
+
+    LONG system_status = make_process_system();
+    if (system_status != 0)
+        fprintf(stderr, "LunaBridge: cannot become a Wine system process (status 0x%08lx)\n", (unsigned long)system_status);
+    else if (getenv("LUNA_BRIDGE_DEBUG"))
+        fprintf(stderr, "LunaBridge: running as a Wine system process\n");
+    watch_session();
 
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
@@ -966,6 +1067,12 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
     {
         bridge.log(err);
         return 3;
+    }
+    if (system_status != 0)
+    {
+        wchar_t msg[96];
+        swprintf(msg, 96, L"cannot become a Wine system process (status 0x%08lx)", (unsigned long)system_status);
+        bridge.log(msg);
     }
     bridge.run();
     closesocket(bridge.sock);

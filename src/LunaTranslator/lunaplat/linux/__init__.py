@@ -30,6 +30,9 @@ PATCHES = {
     "gui.fluent.frameless": "lunaplat.linux.fluent_impl",
     "ocrengines.tesseract5": "lunaplat.linux.tools_impl:patch_tesseract",
     "translator.cdp_helper": "lunaplat.linux.tools_impl:patch_cdp",
+    "myutils.config": "lunaplat.linux.gameident:patch_config",
+    "gui.gamemanager.common": "lunaplat.linux.gamescan:patch_common",
+    "myutils.localetools": "lunaplat.linux.launchers",
 }
 
 

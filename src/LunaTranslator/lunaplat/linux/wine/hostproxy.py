@@ -305,33 +305,65 @@ class BridgeManager(object):
         self.procinfo = {}  # (conn id, winpid) -> info dict
         self.lock = threading.Lock()
         self.launched = {}
+        self.contexts = {}  # prefix -> WineContext of the last game seen there
 
     def library(self):
         return _ProxyLibrary(self.proxy)
 
     def _game_unix_pids(self, gamepath, hint_pids=()):
-        real = os.path.realpath(gamepath)
-        pids = [p for p in hint_pids if proc.process_file_name(p) and os.path.realpath(proc.process_file_name(p)) == real]
+        from lunaplat.linux import gameident
+
+        # only Wine processes: starting a bridge for a native program would
+        # create/boot a Wine prefix (possibly ~/.wine) for nothing
+        pids = [
+            p
+            for p in hint_pids
+            if proc.is_wine_process(p) and gameident.same_game(proc.process_file_name(p), gamepath)
+        ]
         if pids:
             return pids
         for path, ps in proc.list_process_groups().items():
-            if os.path.realpath(path) == real:
+            if gameident.same_game(path, gamepath):
                 return ps
         return []
 
+    # a bridge started by Proton itself (launch option) needs this long to
+    # come up after the game's process appears
+    SELF_START_WAIT = 20
+
     def ensure_bridge(self, unix_pid):
+        from lunaplat.linux import gameident
+
+        if not proc.is_wine_process(unix_pid):
+            print("[LunaBridge] pid {} is not a Wine process, not hooking it".format(unix_pid))
+            return None
         ctx = launcher.WineContext(unix_pid)
+        gameident.register_prefix(ctx.prefix)
+        with self.lock:
+            self.contexts[ctx.prefix] = ctx
         conn = self.server.find(ctx.prefix)
         if conn:
             return conn
+        if ctx.self_started_bridge():
+            conn = self.server.wait_for(ctx.prefix, self.SELF_START_WAIT)
+            if conn:
+                return conn
+        import gobject
+
+        log = gobject.getcachedir("lunabridge.log")
         with self.lock:
             p = self.launched.get(ctx.prefix)
             if p is None or p.poll() is not None:
-                import gobject
-
-                log = gobject.getcachedir("lunabridge.log")
-                self.launched[ctx.prefix] = launcher.launch(ctx, self.server.env(), log)
+                try:
+                    self.launched[ctx.prefix] = launcher.launch(ctx, self.server.env(), log)
+                except (RuntimeError, OSError) as e:
+                    print("[LunaBridge] cannot start the bridge for", ctx, ":", e)
+                    return None
         return self.server.wait_for(ctx.prefix, self.LAUNCH_TIMEOUT)
+
+    def context_for(self, conn):
+        with self.lock:
+            return self.contexts.get(conn.prefix_key)
 
     def list_processes(self, conn):
         r = conn.call(P.LIST_PROCESSES)
@@ -357,11 +389,12 @@ class BridgeManager(object):
         conn = self.ensure_bridge(unix_pids[0])
         if conn is None:
             return []
-        real = os.path.realpath(gamepath)
+        from lunaplat.linux import gameident
+
         found = []
         for info in self.list_processes(conn):
             up = info["unixpath"]
-            if up and os.path.realpath(up) == real:
+            if up and gameident.same_game(up, gamepath):
                 found.append(info["pid"])
                 self.proxy.bind_pid(info["pid"], conn)
         return found
@@ -395,7 +428,15 @@ class BridgeManager(object):
             if c is None:
                 ok = False
                 continue
-            r = c.call(P.INJECT, int(pid), self.to_dos(c, dll_unix), timeout=30)
+            dll = os.path.abspath(dll_unix)
+            ctx = self.context_for(c)
+            if ctx is not None:
+                # a containerised game may not see the app's folder
+                try:
+                    dll = ctx.visible_path(dll)
+                except OSError as e:
+                    print("[LunaBridge] cannot copy", dll, "into the prefix:", e)
+            r = c.call(P.INJECT, int(pid), self.to_dos(c, dll), timeout=30)
             ok = ok and bool(r and r[0])
         return ok
 

@@ -43,6 +43,10 @@ class BridgeConnection(object):
         self._events = queue.Queue()
         self.on_event = None  # callable(type, id, values)
         self.on_close = None
+
+    def start(self):
+        # after on_connect has installed on_event: early events (a LOG sent
+        # right after HELLO) are not dropped
         threading.Thread(target=self._reader, daemon=True).start()
         threading.Thread(target=self._dispatcher, daemon=True).start()
 
@@ -208,6 +212,7 @@ class BridgeServer(object):
                 self.on_connect(conn)
             except Exception:
                 traceback.print_exc()
+        conn.start()
 
     def _forget(self, conn):
         with self.cond:

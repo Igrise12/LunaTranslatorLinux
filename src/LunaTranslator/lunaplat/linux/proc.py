@@ -35,6 +35,9 @@ _HELPERS = {
     "rundll32.exe",
     "wineboot.exe",
     "winemenubuilder.exe",
+    "xalia.exe",
+    "iexplore.exe",
+    "winedbg.exe",
     "lunabridge32.exe",
     "lunabridge64.exe",
     "lunasubprocess32.exe",
@@ -110,6 +113,7 @@ def _ci_join(base, parts):
 
 def dos_to_unix(winpath, prefix):
     """'C:\\a\\b.exe' -> '<prefix>/dosdevices/c:/a/b.exe' resolved."""
+    winpath = strip_nt_prefix(winpath)
     if not winpath or not _WIN_PATH.match(winpath):
         return winpath
     drive = winpath[0].lower()
@@ -129,6 +133,13 @@ def dos_to_unix(winpath, prefix):
     return _ci_join(base, rest)
 
 
+def strip_nt_prefix(path):
+    """'\\\\?\\Z:\\x' / '\\??\\Z:\\x' -> 'Z:\\x' (Proton starts some helpers so)."""
+    if path and path[:4] in ("\\\\?\\", "\\??\\", "\\\\.\\"):
+        return path[4:]
+    return path
+
+
 def is_wine_process(pid):
     exe = exe_link(pid)
     if exe and os.path.basename(exe) in _WINE_LOADERS:
@@ -145,7 +156,7 @@ def windows_image_path(pid):
     args = cmdline(pid)
     if not args:
         return None
-    a0 = args[0]
+    a0 = strip_nt_prefix(args[0])
     if _WIN_PATH.match(a0):
         return a0
     exe = exe_link(pid)

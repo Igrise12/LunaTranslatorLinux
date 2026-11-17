@@ -98,8 +98,30 @@ def patch(mod):
     from lunaplat.linux.wine import launcher
 
     if not launcher.available():
-        # no Wine-side binaries: keep hooking as a harmless no-op
+        # no Wine-side binaries: keep hooking as a harmless no-op, but say so
+        # once when the user tries to hook something
         mod.CDLL = lunaplat.load_library
+        base_start = mod.texthook.start
+        told = []
+
+        def start(self, *a, **k):
+            if not told:
+                told.append(1)
+                msg = (
+                    "Text hooking needs the Wine-side binaries (LunaBridge*.exe, LunaHost*.dll, "
+                    "LunaHook*.dll) in files/LunaHook. Build them with "
+                    "src/NativeImpl/scripts/linux/build_winbins.sh."
+                )
+                print("[lunaplat] " + msg)
+                try:
+                    import gobject
+
+                    gobject.base.displayinfomessage(msg, "<msg_error_Origin>")
+                except Exception:
+                    pass
+            return base_start(self, *a, **k)
+
+        mod.texthook.start = start
         return
 
     from lunaplat.linux.wine.hostproxy import manager

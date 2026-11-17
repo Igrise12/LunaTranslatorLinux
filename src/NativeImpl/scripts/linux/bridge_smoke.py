@@ -5,7 +5,14 @@ Starts hooktarget{32,64}.exe in a Wine prefix, launches LunaBridge for that
 prefix, lists processes, injects LunaHook, enables the GDI PC hooks and
 waits for hooked text to arrive.
 
-    bridge_smoke.py [--arch 64|32] [--prefix DIR] [--seconds N]
+    bridge_smoke.py [--arch 64|32] [--prefix DIR] [--seconds N] [--embed]
+                    [--umu [--proton DIR]] [--attach]
+
+--umu runs the target with umu-run (Proton inside the Steam Linux Runtime
+container, like a Steam game); the default prefix is then
+~/.cache/lunatranslator/umu-prefix. --attach does not start the target and
+uses an already running one (and leaves it running). LUNA_BRIDGE_MODE=host
+or nsenter forces how the bridge is started for a containerised game.
 
 Needs the binaries from build_winbins.sh (hooktarget is built next to the
 bridge in src/NativeImpl/LunaHook/builds/Release_win10).
@@ -44,16 +51,22 @@ def main():
     ap.add_argument("--prefix", default=os.path.expanduser("~/.cache/lunatranslator/smoke-prefix"))
     ap.add_argument("--seconds", type=int, default=25)
     ap.add_argument("--embed", action="store_true", help="also test embedded translation (checked with local OCR)")
+    ap.add_argument("--umu", action="store_true", help="run the target with umu-run (Proton in pressure-vessel)")
+    ap.add_argument(
+        "--proton",
+        default=os.path.expanduser("~/.local/share/Steam/steamapps/common/Proton - Experimental"),
+        help="PROTONPATH for --umu",
+    )
+    ap.add_argument("--attach", action="store_true", help="use an already running target")
     args = ap.parse_args()
+    if args.umu and args.prefix == ap.get_default("prefix"):
+        args.prefix = os.path.expanduser("~/.cache/lunatranslator/umu-prefix")
 
     target = os.path.join(SRC, "NativeImpl", "LunaHook", "builds", "Release_win10", "hooktarget{}.exe".format(args.arch))
     if not os.path.isfile(target):
         sys.exit("missing " + target + " (run build_winbins.sh)")
 
-    env = dict(os.environ, WINEPREFIX=args.prefix, WINEDEBUG="-all", WINEDLLOVERRIDES="mscoree,mshtml=")
-    os.makedirs(args.prefix, exist_ok=True)
-    game = subprocess.Popen([shutil.which("wine"), target], env=env)
-    print("started target, unix pid", game.pid)
+    game = start_target(args, target)
 
     mgr = BridgeManager()
     mgr.proxy.ThreadParam = ThreadParam
@@ -92,6 +105,8 @@ def main():
     # wait for the target's process to show up, then map it to Windows pids
     deadline = time.time() + 30
     winpids = []
+    if args.umu:
+        deadline += 90  # first run creates the Proton prefix
     while time.time() < deadline and not winpids:
         time.sleep(1)
         winpids = mgr.windows_pids(os.path.realpath(target))
@@ -99,6 +114,9 @@ def main():
     if not winpids:
         game.kill()
         sys.exit("FAIL: bridge did not find the target process")
+    conn = mgr.proxy.conn_for(winpids[0])
+    ctx = mgr.context_for(conn)
+    print("bridge:", conn.arch, "bit, prefix", conn.prefix, "mode", ctx.mode if ctx else None, ctx)
 
     for pid in winpids:
         lib.Luna_ConnectProcess(pid)
@@ -129,6 +147,69 @@ def main():
     ok = any("テスト" in t for _, t in texts) and embed_ok is not False
     print("PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)
+
+
+class _Game(object):
+    """Stands in for the Popen of the target: kill() ends the Wine process
+    (and with it umu-run / the container) by pid."""
+
+    def __init__(self, popen, target):
+        self.popen = popen
+        self.target = os.path.realpath(target)
+
+    @property
+    def pid(self):
+        from lunaplat.linux import proc
+
+        for path, pids in proc.list_process_groups().items():
+            if os.path.realpath(path) == self.target:
+                return pids[0]
+        return self.popen.pid if self.popen else 0
+
+    def kill(self):
+        import signal
+        from lunaplat.linux import proc
+
+        if self.popen is None:
+            return  # --attach: not ours to stop
+
+        for path, pids in proc.list_process_groups().items():
+            if os.path.realpath(path) == self.target:
+                for pid in pids:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+        if self.popen:
+            try:
+                self.popen.wait(30)
+            except subprocess.TimeoutExpired:
+                self.popen.kill()
+
+
+def start_target(args, target):
+    if args.attach:
+        return _Game(None, target)
+    os.makedirs(args.prefix, exist_ok=True)
+    if args.umu:
+        umu = shutil.which("umu-run")
+        if not umu:
+            sys.exit("umu-run not found")
+        env = dict(
+            os.environ,
+            WINEPREFIX=args.prefix,
+            PROTONPATH=args.proton,
+            GAMEID="umu-default",
+            UMU_RUNTIME_UPDATE="0",
+            WINEDEBUG="-all",
+        )
+        p = subprocess.Popen([umu, target], env=env, stdin=subprocess.DEVNULL, start_new_session=True)
+        print("started target with umu-run, pid", p.pid)
+        return _Game(p, target)
+    env = dict(os.environ, WINEPREFIX=args.prefix, WINEDEBUG="-all", WINEDLLOVERRIDES="mscoree,mshtml=")
+    p = subprocess.Popen([shutil.which("wine"), target], env=env)
+    print("started target, unix pid", p.pid)
+    return _Game(p, target)
 
 
 def check_embed(args, lib, winpids, embeds, end, game):
