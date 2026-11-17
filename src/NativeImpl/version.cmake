@@ -15,7 +15,9 @@ endif()
 message(STATUS "Version: ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}.${VERSION_REVISION}")
 
 
-set(LUNA_VERSION "{${VERSION_MAJOR},${VERSION_MINOR},${VERSION_PATCH},${VERSION_REVISION}}")
+# no braces here: Ninja runs commands through sh on Linux, which would
+# brace-expand {a,b,c,d} into separate -D flags (version_def.cpp adds them)
+set(LUNA_VERSION "${VERSION_MAJOR},${VERSION_MINOR},${VERSION_PATCH},${VERSION_REVISION}")
 add_library(VERSION_DEF ${CMAKE_CURRENT_LIST_DIR}/version_def.cpp)
 target_compile_definitions(VERSION_DEF PRIVATE
     LUNA_VERSION_=${LUNA_VERSION})

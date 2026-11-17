@@ -138,18 +138,38 @@ def is_wine_process(pid):
 
 
 def windows_image_path(pid):
-    """Windows path of a Wine process's image, or None."""
+    """Image path of a Wine process as Wine reports it in argv[0], or None.
+
+    Usually a Windows path ("C:\\...", "Z:\\..."), but a program started as
+    `wine some/dir/game.exe` keeps the Unix path it was given."""
     args = cmdline(pid)
-    if args and _WIN_PATH.match(args[0]):
-        return args[0]
+    if not args:
+        return None
+    a0 = args[0]
+    if _WIN_PATH.match(a0):
+        return a0
+    exe = exe_link(pid)
+    if exe and os.path.basename(exe) in _WINE_LOADERS and a0.lower().endswith(".exe"):
+        return a0
     return None
+
+
+def _unix_image(pid, image):
+    if _WIN_PATH.match(image):
+        return dos_to_unix(image, wine_prefix(environ(pid)))
+    if not os.path.isabs(image):
+        try:
+            image = os.path.join(os.readlink("/proc/{}/cwd".format(int(pid))), image)
+        except OSError:
+            pass
+    return os.path.normpath(image)
 
 
 def process_file_name(pid):
     """Unix path of the program a process runs (the .exe for Wine games)."""
-    win = windows_image_path(pid)
-    if win:
-        return dos_to_unix(win, wine_prefix(environ(pid)))
+    image = windows_image_path(pid)
+    if image:
+        return _unix_image(pid, image)
     return exe_link(pid)
 
 
@@ -177,7 +197,7 @@ def list_wine_processes():
         win = windows_image_path(pid)
         if not win:
             continue
-        unix = dos_to_unix(win, wine_prefix(environ(pid)))
+        unix = _unix_image(pid, win)
         if _is_helper(win, unix):
             continue
         out.append((pid, unix, win))

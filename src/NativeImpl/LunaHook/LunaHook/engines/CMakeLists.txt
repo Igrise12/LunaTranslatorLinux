@@ -10,10 +10,16 @@ target_sources(commonengine INTERFACE
 )
 
 
+if(NOT DEFINED csc)
 set(csc "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe")
+endif()
+if(NOT DEFINED mscorlib)
 set(mscorlib "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/mscorlib.dll")
+endif()
 
-
+# Cross builds without a C# compiler can skip the Unity font loader
+option(BUILD_TMPFONTLOADER "BUILD_TMPFONTLOADER" ON)
+if(BUILD_TMPFONTLOADER)
 set(_lunatmp_src "${CMAKE_CURRENT_SOURCE_DIR}/unity/LunaTmpFontLoader.cs")
 set(_lunatmp_dll "${binary_out_putpath}/LunaTmpFontLoader.dll")
 add_custom_command(
@@ -25,3 +31,4 @@ add_custom_command(
     VERBATIM
 )
 add_custom_target(LunaTmpFontLoader ALL DEPENDS "${_lunatmp_dll}")
+endif()

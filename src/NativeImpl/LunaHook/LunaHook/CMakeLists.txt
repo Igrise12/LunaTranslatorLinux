@@ -56,4 +56,6 @@ target_link_options(LunaHook PRIVATE "/DELAYLOAD:WS2_32.dll")
 target_link_options(LunaHook PRIVATE "/DELAYLOAD:VERSION.dll")
 target_link_libraries(LunaHook PRIVATE delayimp)
 
+if(TARGET LunaTmpFontLoader)
 add_dependencies(LunaHook LunaTmpFontLoader)
+endif()
