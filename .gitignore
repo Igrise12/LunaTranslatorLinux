@@ -60,3 +60,9 @@ spacy_wrapper
 src/DirectLiveCaptions
 *.onnx
 src/LunaTranslator/defaultconfig/llama.cpp.version.json
+
+# Linux packaging (src/scripts/linux)
+.venv/
+/dist/
+*.AppImage
+*.AppImage.zsync

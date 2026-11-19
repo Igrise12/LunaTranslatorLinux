@@ -21,6 +21,7 @@ export const en = defineConfig({
                 items: [
                     { text: 'Software Download & FAQ', link: '/en/README' },
                     { text: 'Basic Usage', link: '/en/basicuse' },
+                    { text: 'Running on Linux', link: '/en/linux' },
                 ]
             },
             {

@@ -1,0 +1,9 @@
+# Python packages the Linux port needs (pip names). Used by setup.sh --venv
+# and by the AppImage build (pinned there by appimage/constraints.txt).
+# Distro packages are listed by setup.sh; prefer those when available.
+PyQt6>=6.4
+PyQt6-WebEngine>=6.4
+tinycss2
+python-xlib
+pefile
+fonttools

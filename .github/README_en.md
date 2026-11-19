@@ -11,6 +11,8 @@
 
 If you encounter any difficulties while using the software, you can check the [User Guide](https://docs.lunatranslator.org/en), or join our [Discord](https://discord.com/invite/ErtDwVeAbB).
 
+**Linux:** this fork runs natively on Linux and hooks Windows games under Wine, Proton, Lutris and Bottles. See [Running on Linux](../docs/en/linux.md) for requirements, building and setup.
+
 <a href="https://discord.gg/invite/ErtDwVeAbB"><img src="https://img.shields.io/discord/1262692128031772733?style=for-the-badge&logo=discord&logoColor=white&label=Discord&color=5865F2" alt="Discord"></a>
 
 ## Features

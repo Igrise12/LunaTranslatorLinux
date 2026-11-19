@@ -94,6 +94,22 @@ def apply_all():
         _done.add(name)
 
 
+APP_NAME = "LunaTranslator"
+# matches src/files/linux/<DESKTOP_ID>.desktop
+DESKTOP_ID = "io.github.Igrise12.LunaTranslatorLinux"
+
+
+def _desktop_entry_installed():
+    import os
+
+    dirs = [os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")]
+    dirs += (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")
+    name = DESKTOP_ID + ".desktop"
+    return any(
+        d and os.path.isfile(os.path.join(d, "applications", name)) for d in dirs
+    )
+
+
 def _wrap_qapplication(qtsymbols_module):
     """Make `from qtsymbols import QApplication` hand out a subclass that
     installs our window-manager hints as soon as the application exists."""
@@ -102,6 +118,14 @@ def _wrap_qapplication(qtsymbols_module):
     class QApplication(base):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
+            # WM_CLASS class / Wayland app_id, matched by docks and taskbars
+            # against the desktop entry (StartupWMClass); argv[0] would give
+            # "main.py"
+            self.setApplicationName(APP_NAME)
+            if _desktop_entry_installed():
+                # Qt registers this ID with the portal, which logs a warning
+                # for an ID without an installed desktop entry
+                self.setDesktopFileName(DESKTOP_ID)
             try:
                 from lunaplat.linux.qt import windowtypes
 

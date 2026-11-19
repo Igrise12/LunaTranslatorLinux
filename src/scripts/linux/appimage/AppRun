@@ -1,0 +1,179 @@
+#!/bin/bash
+# AppRun of the LunaTranslator AppImage.
+#
+# The app keeps its state next to its code (userconfig/, cache/ and a few
+# other folders relative to src/, which main.py makes the working directory)
+# and writes some of its own files (files/lang/*.json). The AppImage is
+# mounted read-only, at a mount point that differs per process, so the app
+# runs from a writable per-user folder instead:
+#
+#   $LUNATRANSLATOR_HOME  (default: ${XDG_DATA_HOME:-~/.local/share}/LunaTranslator)
+#     app/<build>/          copy of the image's opt/lunatranslator, one per
+#                           build; removed once no running instance uses it
+#     LunaTranslator -> app/<build>/LunaTranslator          (symlink)
+#     version.txt    -> app/<build>/version.txt             (symlink)
+#     files/
+#       lang, static, DLL64, ... -> ../app/<build>/files/...  (symlinks)
+#       LunaHook/  linux/  luna.ico   real copies (see below)
+#     userconfig/  cache/  ...       the user's data, created by the app
+#
+# Links never point into the FUSE mount: a second instance (or one of an
+# older/newer AppImage) would otherwise re-point them at its own mount, which
+# disappears when it exits. Each instance holds a shared lock on its build's
+# copy for its lifetime; setup runs under an exclusive lock. A real file or
+# folder the user put in place of a symlink is left alone.
+#
+# LunaHook/ (LunaBridge*.exe, LunaHost*.dll, LunaHook*.dll are run or injected
+# by Wine, also inside Proton's container), linux/ (lunatranslator-proton.sh,
+# referenced from Steam launch options) and luna.ico (desktop entries) are
+# used outside this process, so they live at fixed, unversioned paths and are
+# replaced when the build changes.
+#
+# "--python ARGS" runs the bundled Python instead of the app (debugging).
+#
+# Needs from the system: external programs (wine, ffmpeg, pacat/pw-cat, grim,
+# wl-clipboard, espeak-ng, xdg-utils, ...), libcurl.so.4 and the usual desktop
+# libraries (GL/EGL, fontconfig, xkbcommon, dbus, nss, alsa, ...).
+
+HERE="$(dirname "$(readlink -f "$0")")"
+APP="$HERE/opt/lunatranslator"
+PY="$HERE/opt/python3/bin/python3"
+
+DATA="${LUNATRANSLATOR_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/LunaTranslator}"
+COPIED=" LunaHook linux luna.ico "
+
+die() {
+    echo "LunaTranslator: $*" >&2
+    exit 1
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# link target linkpath: (re)point a symlink, never replace real files
+link() {
+    if [ -L "$2" ] || [ ! -e "$2" ]; then
+        ln -sfn "$1" "$2" || die "cannot create $2"
+    fi
+}
+
+# is this a link we made (into a build copy or, from older versions, a mount)?
+ours() {
+    case "$(readlink "$1")" in
+        "$DATA"/app/* | ../app/* | app/* | */.mount_*/opt/lunatranslator/*) return 0 ;;
+    esac
+    return 1
+}
+
+mkdir -p "$DATA/files" "$DATA/app" || die "cannot create $DATA"
+case "$DATA" in /*) ;; *) DATA="$(cd "$DATA" && pwd)" ;; esac
+
+BUILDID="$(cat "$APP/files/.build-id" 2>/dev/null)"
+BUILD="$(printf '%s' "${BUILDID:-unknown}" | tr -c 'A-Za-z0-9._-' '_')"
+BDIR="$DATA/app/$BUILD"
+
+# serialise setup between instances starting at the same time
+if have flock; then
+    exec 8>"$DATA/app/.setup.lock" && flock 8
+fi
+
+if [ ! -f "$BDIR/.complete" ]; then
+    rm -rf "$BDIR.tmp"
+    cp -R "$APP" "$BDIR.tmp" || die "cannot copy the application to $DATA/app"
+    chmod -R u+w "$BDIR.tmp"
+    rm -rf "$BDIR"
+    mv "$BDIR.tmp" "$BDIR" || die "cannot create $BDIR"
+    : >"$BDIR/.complete"
+fi
+
+# held (fd 9 is inherited by exec, not by the app's children) until exit
+if have flock; then
+    exec 9<"$BDIR/.complete" && flock -s 9
+fi
+
+for entry in "$BDIR"/*; do
+    name="${entry##*/}"
+    [ "$name" = files ] && continue
+    link "app/$BUILD/$name" "$DATA/$name"
+done
+
+for entry in "$BDIR"/files/*; do
+    name="${entry##*/}"
+    case "$COPIED" in *" $name "*) continue ;; esac
+    link "../app/$BUILD/files/$name" "$DATA/files/$name"
+done
+
+if [ "$(cat "$DATA/files/.build-id" 2>/dev/null)" != "$BUILDID" ]; then
+    for name in $COPIED; do
+        src="$BDIR/files/$name"
+        dst="$DATA/files/$name"
+        [ -e "$src" ] || continue
+        # replace by rename: a game may still have the old hook dll mapped
+        rm -rf "$dst.new"
+        cp -R "$src" "$dst.new" || die "cannot copy $src"
+        rm -rf "$dst"
+        mv "$dst.new" "$dst" || die "cannot update $dst"
+    done
+    printf '%s\n' "$BUILDID" >"$DATA/files/.build-id"
+fi
+
+# copies of other builds that no running instance holds
+if have flock; then
+    for old in "$DATA"/app/*/; do
+        old="${old%/}"
+        [ "$old" = "$BDIR" ] && continue
+        if [ ! -f "$old/.complete" ] || flock -n -x "$old/.complete" true; then
+            rm -rf "$old"
+        fi
+    done
+fi
+
+# our links into copies or images that no longer exist
+for entry in "$DATA"/* "$DATA"/files/*; do
+    if [ -L "$entry" ] && [ ! -e "$entry" ] && ours "$entry"; then
+        rm -f "$entry"
+    fi
+done
+
+if have flock; then
+    exec 8>&-
+fi
+
+# Python: CA bundle for the ssl module (the bundled OpenSSL looks in the
+# build system's paths); prefer the system's bundle
+if [ -z "${SSL_CERT_FILE:-}" ]; then
+    for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt \
+        /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem "$HERE/opt/_internal/certs.pem"; do
+        if [ -r "$f" ]; then
+            export SSL_CERT_FILE="$f"
+            break
+        fi
+    done
+fi
+
+# Qt WebEngine's sandbox needs unprivileged user namespaces, which Ubuntu
+# >= 23.10 denies to programs without an AppArmor profile (an AppImage has none)
+if [ -z "${QTWEBENGINE_DISABLE_SANDBOX:-}" ] &&
+    [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+    export QTWEBENGINE_DISABLE_SANDBOX=1
+fi
+
+# plugins of the system's Qt do not load into the bundled one
+unset QT_PLUGIN_PATH QML2_IMPORT_PATH QML_IMPORT_PATH
+
+# -E -s: ignore PYTHON* variables and the user's site-packages (a different
+# PyQt6 there would break the bundled one) without changing the environment
+# that child processes (wine, umu-run, ...) inherit
+if [ "${1:-}" = "--python" ]; then
+    # debugging aid: the bundled Python, run in the prepared folder
+    # (e.g. LunaTranslator.AppImage --python -c 'import PyQt6.QtCore');
+    # a relative script path is taken from the caller's directory
+    shift
+    if [ -n "${1:-}" ] && [ "${1#-}" = "$1" ] && [ -f "$1" ]; then
+        script="$(readlink -f "$1")"
+        shift
+        set -- "$script" "$@"
+    fi
+    cd "$DATA" || die "cannot enter $DATA"
+    exec "$PY" -E -s -B "$@"
+fi
+exec "$PY" -E -s -B "$DATA/LunaTranslator/main.py" "$@"

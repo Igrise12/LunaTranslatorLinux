@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.Igrise12.LunaTranslatorLinux</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <name>LunaTranslator</name>
+  <summary>Visual novel translator with text hooking, OCR and dictionaries</summary>
+  <description>
+    <p>
+      LunaTranslator extracts the text of running games and visual novels and
+      shows translations in an overlay. This is the native Linux port.
+    </p>
+    <ul>
+      <li>Text hooking of Windows games running under Wine or Proton</li>
+      <li>OCR of a screen region, clipboard and file input</li>
+      <li>Many online, offline and large language model translation engines</li>
+      <li>Text to speech, dictionary lookup and Anki export</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.Igrise12.LunaTranslatorLinux.desktop</launchable>
+  <url type="homepage">https://github.com/Igrise12/LunaTranslatorLinux</url>
+  <url type="bugtracker">https://github.com/Igrise12/LunaTranslatorLinux/issues</url>
+  <developer id="io.github.igrise12">
+    <name>LunaTranslator contributors</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <provides>
+    <binary>lunatranslator</binary>
+  </provides>
+  <releases>
+    <release version="12.1.3.11" date="2026-11-17"/>
+  </releases>
+</component>

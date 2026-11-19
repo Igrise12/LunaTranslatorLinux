@@ -38,7 +38,10 @@ if [ "$CLEAN" = 1 ]; then
 fi
 
 if [ ! -f "$BUILD/build.ninja" ]; then
-    cmake -S "$NATIVE" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release
+    # BUILD_SHARED_LIBS=OFF in the cache: md4c's option() would otherwise
+    # default it to ON on the first configure and link libmd4c*.so dynamically
+    cmake -S "$NATIVE" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF
 fi
 cmake --build "$BUILD" -j "$(nproc)"
 

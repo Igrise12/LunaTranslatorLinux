@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=LunaTranslator
+GenericName=Visual Novel Translator
+Comment=Translate visual novels and games: text hooking, OCR, translation engines, dictionaries
+Exec=lunatranslator
+Icon=io.github.Igrise12.LunaTranslatorLinux
+Terminal=false
+StartupWMClass=LunaTranslator
+Categories=Utility;
+Keywords=translator;visual novel;galgame;hook;OCR;Japanese;

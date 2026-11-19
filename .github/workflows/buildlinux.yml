@@ -1,0 +1,293 @@
+name: Build Linux
+
+# Linux port: native libraries, the Windows-side bridge binaries, Python
+# compatibility checks and the AppImage. A pushed tag v* also publishes a
+# release with the AppImage and lunatranslator-winbins.tar.gz (the archive
+# `src/scripts/linux/setup.sh --winbins download` fetches).
+# Upstream's Windows build is build.yml / buildluna.yml.
+
+on:
+  workflow_dispatch:
+  # no paths filter on push: it would also apply to tag pushes
+  push:
+    branches: [linux-port]
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'src/LunaTranslator/**'
+      - 'src/NativeImpl/**'
+      - 'src/scripts/linux/**'
+      - 'src/files/linux/**'
+      - 'src/version.txt'
+      - '.github/workflows/buildlinux.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: buildlinux-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # keep in sync with get_cmake_args() in src/scripts/build_lunatranslator.py
+  VS_GENERATOR: Visual Studio 18 2026
+
+jobs:
+  linux-native:
+    name: libNativeUtils.so / libCVUtils.so
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      # Ubuntu ships OpenCV 4; CVUtils treats OpenCV 5's geometry module as
+      # optional, so the distro package is enough
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build git curl \
+            protobuf-compiler libprotobuf-dev libopencv-dev
+      - name: Build
+        run: src/NativeImpl/scripts/linux/build_native.sh
+      - name: Check exports load
+        run: |
+          cd src/files/DLL64
+          ls -l
+          python3 -c "import ctypes; ctypes.CDLL('./libNativeUtils.so'); ctypes.CDLL('./libCVUtils.so'); print('ok')"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-native-x64
+          # libonnxruntime.so* is needed next to libCVUtils.so ($ORIGIN rpath)
+          path: |
+            src/files/DLL64/libNativeUtils.so
+            src/files/DLL64/libCVUtils.so
+            src/files/DLL64/libonnxruntime.so*
+          if-no-files-found: error
+
+  windows-bridge:
+    name: LunaHook / LunaHost / LunaBridge (${{ matrix.arch }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            cmakearch: Win32
+            bits: 32
+          - arch: x64
+            cmakearch: x64
+            bits: 64
+    steps:
+      - uses: actions/checkout@v6
+      # Same generator/platform/toolset as `build_lunatranslator.py hook <arch>
+      # win10`, but hook, host and bridge in one configure like
+      # src/NativeImpl/scripts/linux/build_winbins.sh (static CRT throughout,
+      # so the bridge needs no VC runtime inside the Wine prefix)
+      - name: Configure
+        shell: pwsh
+        run: >
+          cmake -S src/NativeImpl/LunaHook -B src/NativeImpl/LunaHook/build/bridge_${{ matrix.arch }}
+          -G "$env:VS_GENERATOR" -A ${{ matrix.cmakearch }} -T host=${{ matrix.arch }}
+          -DWIN10ABOVE=ON -DBUILD_HOOK=ON -DBUILD_HOST=ON -DBUILD_BRIDGE=ON
+      - name: Build
+        shell: pwsh
+        run: >
+          cmake --build src/NativeImpl/LunaHook/build/bridge_${{ matrix.arch }}
+          --config Release --target ALL_BUILD -j $env:NUMBER_OF_PROCESSORS
+      - name: List output
+        shell: pwsh
+        run: Get-ChildItem src/NativeImpl/LunaHook/builds/Release_win10
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-bins-${{ matrix.arch }}
+          path: |
+            src/NativeImpl/LunaHook/builds/Release_win10/LunaHook${{ matrix.bits }}.dll
+            src/NativeImpl/LunaHook/builds/Release_win10/LunaHost${{ matrix.bits }}.dll
+            src/NativeImpl/LunaHook/builds/Release_win10/LunaBridge${{ matrix.bits }}.exe
+            src/NativeImpl/LunaHook/builds/Release_win10/hooktarget${{ matrix.bits }}.exe
+            src/NativeImpl/LunaHook/builds/Release_win10/LunaTmpFontLoader.dll
+          if-no-files-found: error
+
+  python-checks:
+    name: Python checks
+    runs-on: ubuntu-24.04
+    needs: linux-native
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      # Windows runs the shared code on Python 3.7 (x86 winxp, x64 win7).
+      # Everything under src/LunaTranslator is importable there except
+      # lunaplat/linux/**, which lunaplat/__init__.py only imports when not
+      # on Windows; the Linux package needs Python >= 3.10.
+      - name: Syntax (Python 3.7 for shared files, 3.10 for lunaplat/linux)
+        run: |
+          python - <<'EOF'
+          import ast, os, sys
+
+          ROOT = "src/LunaTranslator"
+          LINUX = os.path.join(ROOT, "lunaplat", "linux")
+          errors = []
+          count = 0
+
+
+          def toplevel_imports(tree):
+              """Import nodes executed at import time (not inside def/class)."""
+              stack = list(tree.body)
+              while stack:
+                  node = stack.pop()
+                  if isinstance(node, (ast.Import, ast.ImportFrom)):
+                      yield node
+                  elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                      continue
+                  else:
+                      for field in ("body", "orelse", "finalbody", "handlers"):
+                          stack.extend(getattr(node, field, []) or [])
+
+
+          for root, dirs, files in os.walk(ROOT):
+              dirs[:] = [d for d in dirs if d != "__pycache__"]
+              linux = root == LINUX or root.startswith(LINUX + os.sep)
+              for f in files:
+                  if not f.endswith(".py"):
+                      continue
+                  path = os.path.join(root, f)
+                  count += 1
+                  with open(path, encoding="utf-8") as fh:
+                      src = fh.read()
+                  try:
+                      tree = ast.parse(src, path, feature_version=(3, 10) if linux else (3, 7))
+                  except SyntaxError as e:
+                      errors.append("{}:{}: {} (Python {})".format(path, e.lineno, e.msg, "3.10" if linux else "3.7"))
+                      continue
+                  if linux:
+                      continue
+                  for node in toplevel_imports(tree):
+                      names = [node.module or ""] if isinstance(node, ast.ImportFrom) else [a.name for a in node.names]
+                      if isinstance(node, ast.ImportFrom) and node.module == "lunaplat":
+                          names += ["lunaplat." + a.name for a in node.names]
+                      for n in names:
+                          if n == "lunaplat.linux" or n.startswith("lunaplat.linux."):
+                              errors.append("{}:{}: module-level import of {} (Linux-only) in a file Windows imports".format(path, node.lineno, n))
+
+          print("checked {} files".format(count))
+          for e in errors:
+              print("::error::" + e)
+          sys.exit(1 if errors else 0)
+          EOF
+      - name: Byte-compile
+        run: python -m compileall -q src/LunaTranslator src/NativeImpl/scripts/linux
+      - uses: actions/download-artifact@v7
+        with:
+          name: linux-native-x64
+          path: src/files/DLL64
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libdbus-1-3 libcurl4t64 \
+            libprotobuf-lite32t64 libopencv-core406t64 libopencv-imgproc406t64
+          ldd src/files/DLL64/libNativeUtils.so src/files/DLL64/libCVUtils.so | grep 'not found' && exit 1 || true
+          python -m pip install --upgrade pip
+          python -m pip install PyQt6 python-xlib pefile fonttools
+      # Imports the app's core modules on Linux with the patch registry
+      # installed (no window is shown; QtWebEngine is optional and not
+      # installed here)
+      - name: Import smoke test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          cd src
+          python -B - <<'EOF'
+          import importlib, os, sys, traceback
+
+          sys.path.insert(0, os.path.abspath("LunaTranslator"))
+          sys.path.insert(1, ".")
+          import lunaplat
+
+          lunaplat.install()
+          mods = [
+              "gobject", "windows", "NativeUtils", "CVUtils", "qtsymbols",
+              "myutils.config", "myutils.utils", "myutils.hwnd", "myutils.localetools",
+              "textio.textsource.texthook", "lunaplat.linux.launchers",
+              "lunaplat.linux.wine.hostproxy", "lunaplat.linux.features",
+          ]
+          failed = []
+          for m in mods:
+              try:
+                  importlib.import_module(m)
+                  print("ok", m)
+              except Exception:
+                  traceback.print_exc()
+                  failed.append(m)
+          # LenientCDLL turns a library that fails to load into stubs; the
+          # import would still succeed, so check the libraries really loaded
+          import CVUtils, NativeUtils
+
+          for name, lib in (("NativeUtils", NativeUtils.utilsdll), ("CVUtils", CVUtils._DelayLoadCVUtils())):
+              if not getattr(lib, "loaded", True):
+                  print("::error::" + name + " did not load")
+                  failed.append(name)
+          if failed:
+              print("::error::import failed: " + ", ".join(failed))
+          sys.exit(1 if failed else 0)
+          EOF
+
+  appimage:
+    name: AppImage
+    runs-on: ubuntu-24.04
+    # the native libraries are rebuilt inside a manylinux_2_28 container
+    # (portable); only the Windows binaries come from another job
+    needs: windows-bridge
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: windows-bins-*
+          merge-multiple: true
+          path: src/files/LunaHook
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends binutils rsync curl
+      - name: Build AppImage
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: src/scripts/linux/appimage/build_appimage.sh --engine docker --ocr-model
+      # the archive setup.sh --winbins download expects
+      - name: Windows binaries archive
+        run: |
+          mkdir -p dist
+          files=()
+          for f in LunaHook32.dll LunaHook64.dll LunaHost32.dll LunaHost64.dll \
+              LunaBridge32.exe LunaBridge64.exe LunaTmpFontLoader.dll; do
+            [ -f "src/files/LunaHook/$f" ] && files+=("LunaHook/$f")
+          done
+          tar -C src/files -czf dist/lunatranslator-winbins.tar.gz "${files[@]}"
+          (cd dist && sha256sum lunatranslator-winbins.tar.gz > lunatranslator-winbins.tar.gz.sha256)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: LunaTranslator-linux-AppImage
+          path: |
+            dist/*.AppImage
+            dist/lunatranslator-winbins.tar.gz*
+          if-no-files-found: error
+
+  release:
+    name: Release
+    runs-on: ubuntu-24.04
+    needs: [appimage, python-checks]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: LunaTranslator-linux-AppImage
+          path: dist
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY"
+          --title "$GITHUB_REF_NAME" --generate-notes

@@ -173,6 +173,7 @@ class mecab(_base):
             r"C:\Program Files\MeCab\dic",
             r"C:\Program Files (x86)\MeCab\dic",
             "/usr/lib/mecab/dic",
+            "/usr/lib64/mecab/dic",
             "/usr/share/mecab/dic",
             "/var/lib/mecab/dic",
         ):

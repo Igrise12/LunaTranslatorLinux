@@ -13,20 +13,36 @@ if(NOT WIN32)
     else()
         message(FATAL_ERROR "unsupported onnxruntime architecture: ${CMAKE_SYSTEM_PROCESSOR}")
     endif()
+    # Microsoft.ML.OnnxRuntime NuGet package: same libonnxruntime.so as the
+    # GitHub release tarball (onnxruntime-linux-<arch>-<ver>.tgz), which is
+    # also accepted via FETCHCONTENT_SOURCE_DIR_ONNXRUNTIME.
+    # one package for all Linux architectures
     FetchContent_Declare(onnxruntime
-        URL https://github.com/microsoft/onnxruntime/releases/download/v${ort_version}/onnxruntime-linux-${ort_arch}-${ort_version}.tgz
+        URL https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/${ort_version}/microsoft.ml.onnxruntime.${ort_version}.nupkg
+        URL_HASH SHA256=4b978d5065b85e7004b6c6f60ca494bd978fbe6836cbf0a0b52d82b61ab99638
+        DOWNLOAD_NAME onnxruntime-${ort_version}.zip
         DOWNLOAD_EXTRACT_TIMESTAMP true
     )
     FetchContent_MakeAvailable(onnxruntime)
+    if(EXISTS ${onnxruntime_SOURCE_DIR}/build/native/include)
+        # NuGet layout
+        string(REPLACE "aarch64" "arm64" ort_rid "linux-${ort_arch}")
+        set(ort_include ${onnxruntime_SOURCE_DIR}/build/native/include)
+        set(ort_lib ${onnxruntime_SOURCE_DIR}/runtimes/${ort_rid}/native/libonnxruntime.so)
+    else()
+        # release tarball layout
+        set(ort_include ${onnxruntime_SOURCE_DIR}/include)
+        set(ort_lib ${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.${ort_version})
+    endif()
     add_library(onnxruntime INTERFACE)
-    target_include_directories(onnxruntime INTERFACE ${onnxruntime_SOURCE_DIR}/include)
-    target_link_libraries(onnxruntime INTERFACE ${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so)
+    target_include_directories(onnxruntime INTERFACE ${ort_include})
+    target_link_libraries(onnxruntime INTERFACE ${ort_lib})
 
     # 链接记录的DT_NEEDED是SONAME(libonnxruntime.so.1)，只拷真文件+建SONAME软链
     add_custom_target(copy_onnxruntime_dll
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.${ort_version}
-            ${CMAKE_FINAL_OUTPUT_DIRECTORY}
+            ${ort_lib}
+            ${CMAKE_FINAL_OUTPUT_DIRECTORY}/libonnxruntime.so.${ort_version}
         COMMAND ln -sf libonnxruntime.so.${ort_version} ${CMAKE_FINAL_OUTPUT_DIRECTORY}/libonnxruntime.so.1
     )
     add_dependencies(onnxruntime copy_onnxruntime_dll)
